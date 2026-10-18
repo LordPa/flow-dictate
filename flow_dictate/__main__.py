@@ -1,6 +1,9 @@
 """Command line entry point.
 
-  python -m flow_dictate                 start dictating
+  python -m flow_dictate                 start dictating (in this terminal)
+  python -m flow_dictate tray            start as a system-tray icon, no terminal
+  python -m flow_dictate autostart       Desktop + login shortcuts for tray mode (Windows)
+  python -m flow_dictate autostart off   remove them
   python -m flow_dictate learn "Term"    teach a word or name
   python -m flow_dictate correct "heard" "meant"
   python -m flow_dictate history [N]     show recent dictations (raw vs final)
@@ -23,6 +26,18 @@ def main(argv: list[str]) -> int:
     if cmd == "run":
         from .app import App
         App(cfg).run()
+        return 0
+
+    if cmd == "tray":
+        from .tray import run_tray
+        run_tray(cfg)
+        return 0
+
+    if cmd == "autostart":
+        import os
+        from .tray import install_autostart
+        project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        print(install_autostart(project_dir, remove=len(argv) > 1 and argv[1] == "off"))
         return 0
 
     if cmd == "learn":

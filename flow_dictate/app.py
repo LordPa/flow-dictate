@@ -246,8 +246,10 @@ def paste_text(text: str, method: str) -> None:
 
 
 class App:
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, on_state=None):
         self.cfg = cfg
+        self.on_state = on_state or (lambda state: None)   # "idle" | "listening" | "busy"
+        self.paused = False
         self.hotkey_name = cfg.get("hotkey") or "auto"
         if self.hotkey_name == "auto":
             self.hotkey_name = default_hotkey()
@@ -269,7 +271,7 @@ class App:
         return key == self.hotkey or getattr(key, "char", None) == getattr(self.hotkey, "char", object())
 
     def on_press(self, key) -> None:
-        if not self._is_hotkey(key):
+        if self.paused or not self._is_hotkey(key):
             return
         with self.lock:
             if self.toggle:
@@ -296,11 +298,13 @@ class App:
         self.recording = True
         if self.cfg.get("live_transcription", True):
             self.live = LiveSession(self.recorder, self.transcriber, whisper_prompt(load_dictionary()))
+        self.on_state("listening")
         print("\r● listening...          ", end="", flush=True)
 
     def _stop(self) -> None:
         self.recording = False
         audio, seconds = self.recorder.stop()
+        self.on_state("busy")
         print("\r  transcribing...       ", end="", flush=True)
         self.jobs.put((audio, seconds, self.live))
         self.live = None
@@ -314,6 +318,9 @@ class App:
             except Exception as e:
                 print(f"\r[error] {type(e).__name__}: {e}", file=sys.stderr)
                 print("Still running. Try again, and send this message if it keeps happening.")
+            finally:
+                if not self.recording:
+                    self.on_state("idle")
 
     def _process(self, audio: np.ndarray, seconds: float, live: "LiveSession | None") -> None:
         if seconds < self.cfg.get("min_seconds", 0.4) or audio.size == 0:
@@ -346,9 +353,15 @@ class App:
         log_history(raw, final, seconds)
         print(f"\r✓ {final}    [{seconds:.1f}s audio, {time.time() - t:.1f}s processing]")
 
-    def run(self) -> None:
+    def start(self):
+        """Start listening in the background. Returns the keyboard listener."""
         from pynput import keyboard
         threading.Thread(target=self.worker, daemon=True).start()
+        listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
+        listener.start()
+        return listener
+
+    def run(self) -> None:
         how = "tap to start / tap to stop" if self.toggle else "hold to talk"
         try:
             mic = self.recorder.sd.query_devices(self.cfg.get("input_device"), "input")["name"]
@@ -357,8 +370,8 @@ class App:
         print(f"Ready. Hotkey: {self.hotkey_name} ({how}). Microphone: {mic}. Ctrl+C to quit.")
         print(f"Change the key with:  python -m flow_dictate hotkey f8   (or ctrl_r, alt_r, pause, scroll_lock)")
         print(f"Settings: {CONFIG_PATH}   Vocabulary: {DATA_DIR}")
-        with keyboard.Listener(on_press=self.on_press, on_release=self.on_release) as listener:
-            try:
-                listener.join()
-            except KeyboardInterrupt:
-                print("\nBye.")
+        listener = self.start()
+        try:
+            listener.join()
+        except KeyboardInterrupt:
+            print("\nBye.")

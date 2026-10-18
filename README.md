@@ -76,6 +76,22 @@ run your terminal as Administrator too.
 Works on X11. On Wayland, global hotkeys from Python are restricted by the compositor;
 bind a desktop shortcut to toggle mode instead (see `mode` below).
 
+## Run it without a terminal
+
+Once the first run has worked, set up the tray icon:
+
+```powershell
+.\start.bat autostart
+```
+
+That puts a **Flow Dictate** shortcut on your Desktop and in your Startup folder. Double-click
+it (or log in) and a microphone icon appears by the clock: grey when ready, red while you
+hold the key, amber while it transcribes. Right-click it to pause, open settings, see the
+log, or quit. No PowerShell window. `.\start.bat autostart off` removes the shortcuts;
+`FlowDictate.vbs` in the project folder is the same launcher without shortcuts.
+
+On macOS/Linux, `./start.sh tray` does the same, and you can add it to your login items.
+
 ## Everyday use
 
 ```

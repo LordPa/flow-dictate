@@ -3,5 +3,8 @@ sounddevice>=0.5
 numpy
 pynput>=1.7
 pyperclip>=1.9
+# System tray icon (run without a terminal)
+pystray>=0.19
+Pillow>=10
 # Optional: only needed if you turn on Claude cleanup in config.json
 anthropic>=1.0
