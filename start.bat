@@ -13,5 +13,12 @@ if not exist venv\Scripts\python.exe (
     venv\Scripts\python.exe -m pip install --upgrade pip
     venv\Scripts\python.exe -m pip install -r requirements.txt || (echo Install failed. & pause & exit /b 1)
 )
+if /I "%1"=="gpu" (
+    echo Installing NVIDIA GPU libraries, about 1 GB...
+    venv\Scripts\python.exe -m pip install -r requirements-gpu.txt
+    echo Done. Run start.bat again.
+    pause
+    exit /b
+)
 venv\Scripts\python.exe -m flow_dictate %*
 pause

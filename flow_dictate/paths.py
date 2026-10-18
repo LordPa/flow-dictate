@@ -31,6 +31,11 @@ DEFAULT_CONFIG = {
     "paste_method": "paste",
     # Drop recordings shorter than this (accidental taps).
     "min_seconds": 0.4,
+    # Transcribe in the background while you're still talking, at each pause, so
+    # only the last stretch remains when you release the key. Set false to disable.
+    "live_transcription": True,
+    # Search width when decoding. "auto" = 1 (fast) on CPU, 5 (most accurate) on GPU.
+    "beam_size": "auto",
     # A silence this long between words ends the sentence (period + capital) when
     # Whisper put no punctuation there. Raise it if thinking pauses split your
     # sentences; lower it if run-on sentences slip through. 0 turns it off.

@@ -9,6 +9,8 @@ import sys
 import urllib.error
 import urllib.request
 
+import numpy as np
+
 from .learning import apply_corrections
 
 # Things people say out loud that should become formatting.
@@ -29,6 +31,56 @@ SPOKEN_END_PUNCTUATION = [
 
 TERMINAL = ".!?"
 KEEP_CAPITAL = {"i", "i'm", "i'll", "i've", "i'd"}
+
+
+def frame_rms(audio: np.ndarray, frame: int) -> np.ndarray:
+    n = len(audio) // frame
+    if n == 0:
+        return np.zeros(0, dtype="float32")
+    return np.sqrt(np.mean(audio[: n * frame].reshape(n, frame) ** 2, axis=1))
+
+
+def silence_threshold(rms: np.ndarray) -> float:
+    """Adaptive: a bit above the quietest frames, never below a tiny floor."""
+    if rms.size == 0:
+        return 1e-3
+    return max(float(np.percentile(rms, 15)) * 3.0, 1e-3)
+
+
+def find_cut(audio: np.ndarray, start: int, sample_rate: int, min_segment: float = 2.0,
+             min_silence: float = 0.5, frame_ms: int = 20) -> int | None:
+    """Find a sample index inside the last pause of audio[start:], so that the audio
+    before it can be transcribed while the speaker is still talking.
+
+    Returns None when there is no pause of `min_silence` seconds after at least
+    `min_segment` seconds of audio."""
+    frame = sample_rate * frame_ms // 1000
+    rms = frame_rms(audio[start:], frame)
+    if rms.size == 0:
+        return None
+    silent = rms < silence_threshold(rms)
+    need = max(1, int(min_silence * 1000 / frame_ms))
+    min_frames = int(min_segment * 1000 / frame_ms)
+    # Scan runs of silence from the end; take the last one long enough.
+    i = len(silent)
+    while i > 0:
+        if not silent[i - 1]:
+            i -= 1
+            continue
+        j = i
+        while j > 0 and silent[j - 1]:
+            j -= 1
+        run = i - j
+        if run >= need and j >= min_frames:
+            cut_frame = j + need // 2  # inside the pause, shortly after speech ended
+            return start + cut_frame * frame
+        i = j
+    return None
+
+
+def has_speech(audio: np.ndarray, sample_rate: int, frame_ms: int = 20) -> bool:
+    rms = frame_rms(audio, sample_rate * frame_ms // 1000)
+    return rms.size > 0 and float(rms.max()) > 0.004
 
 
 def assemble_words(words: list[tuple[str, float, float]], pause_seconds: float) -> str:

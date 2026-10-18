@@ -1,5 +1,7 @@
 import json
 import os
+
+import numpy as np
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +10,7 @@ os.environ["FLOW_DICTATE_HOME"] = tempfile.mkdtemp()
 
 from flow_dictate.cleanup import (  # noqa: E402
     rule_based_cleanup, sanity_check, clean_transcript, join_with_previous, assemble_words,
+    find_cut, has_speech,
 )
 from flow_dictate.learning import (  # noqa: E402
     add_correction, add_to_dictionary, apply_corrections, load_corrections,
@@ -140,6 +143,39 @@ class PauseTests(unittest.TestCase):
     def test_disabled(self):
         w = self.words([(" one", 0.0), (" two", 5.0)])
         self.assertEqual(assemble_words(w, 0), "one two")
+
+
+class LiveCutTests(unittest.TestCase):
+    SR = 16000
+
+    def audio(self, pattern):
+        """pattern: list of (kind, seconds); kind 'speech' or 'quiet'."""
+        rng = np.random.default_rng(1)
+        parts = []
+        for kind, sec in pattern:
+            n = int(sec * self.SR)
+            amp = 0.1 if kind == "speech" else 0.001
+            parts.append((rng.standard_normal(n) * amp).astype("float32"))
+        return np.concatenate(parts)
+
+    def test_cut_lands_in_the_last_long_pause(self):
+        a = self.audio([("speech", 3.0), ("quiet", 0.8), ("speech", 2.0), ("quiet", 0.1)])
+        cut = find_cut(a, 0, self.SR)
+        self.assertIsNotNone(cut)
+        self.assertTrue(3.0 * self.SR <= cut <= 3.8 * self.SR, cut / self.SR)
+
+    def test_no_cut_without_a_pause_or_enough_audio(self):
+        self.assertIsNone(find_cut(self.audio([("speech", 4.0)]), 0, self.SR))
+        self.assertIsNone(find_cut(self.audio([("speech", 1.0), ("quiet", 1.0)]), 0, self.SR))
+
+    def test_cut_respects_already_committed_audio(self):
+        a = self.audio([("speech", 3.0), ("quiet", 0.8), ("speech", 1.0), ("quiet", 0.8), ("speech", 0.5)])
+        first = find_cut(a, 0, self.SR)
+        self.assertIsNone(find_cut(a, first, self.SR))  # only 1s of new speech after the first cut
+
+    def test_has_speech(self):
+        self.assertTrue(has_speech(self.audio([("speech", 0.5)]), self.SR))
+        self.assertFalse(has_speech(self.audio([("quiet", 0.5)]), self.SR))
 
 
 class LearningFilesTests(unittest.TestCase):

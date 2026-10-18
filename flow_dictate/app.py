@@ -9,7 +9,7 @@ import time
 
 import numpy as np
 
-from .cleanup import assemble_words, clean_transcript
+from .cleanup import assemble_words, clean_transcript, find_cut, has_speech
 from .learning import load_corrections, load_dictionary, log_history, whisper_prompt
 from .paths import CONFIG_PATH, DATA_DIR, default_hotkey
 
@@ -87,6 +87,10 @@ class Recorder:
             print(f"[audio] {status}", file=sys.stderr)
         self.chunks.append(indata[:, 0].copy())
 
+    def snapshot(self) -> np.ndarray:
+        chunks = list(self.chunks)  # list copy is atomic enough for a callback appender
+        return np.concatenate(chunks) if chunks else np.zeros(0, dtype="float32")
+
     def stop(self) -> tuple[np.ndarray, float]:
         seconds = time.time() - self.started_at
         if self.stream is not None:
@@ -101,6 +105,7 @@ class Transcriber:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.language = cfg.get("language") or None
+        self.lock = threading.Lock()  # one transcription at a time
         add_cuda_dll_dirs()
         device, compute = pick_device(cfg)
         try:
@@ -127,21 +132,88 @@ class Transcriber:
         self.device = device
         print(f"Model ready on {device} in {time.time() - t:.1f}s.")
 
+    def beam_size(self) -> int:
+        b = self.cfg.get("beam_size", "auto")
+        if b == "auto":
+            return 5 if getattr(self, "device", "cpu") == "cuda" else 1
+        return int(b)
+
+    def transcribe_words(self, audio: np.ndarray, prompt: str, vad: bool = True,
+                         offset: float = 0.0) -> tuple[list[str], list[tuple[str, float, float]]]:
+        """Returns (segment texts, [(word, start, end)]) with times shifted by `offset`."""
+        with self.lock:
+            segments, _ = self.model.transcribe(
+                audio, language=self.language, beam_size=self.beam_size(),
+                initial_prompt=prompt or None, vad_filter=vad,
+                condition_on_previous_text=False, word_timestamps=True,
+            )
+            texts, words = [], []
+            for seg in segments:
+                texts.append(seg.text.strip())
+                words.extend((w.word, w.start + offset, w.end + offset) for w in (seg.words or []))
+        return texts, words
+
     def transcribe(self, audio: np.ndarray, prompt: str, vad: bool = True) -> str:
+        texts, words = self.transcribe_words(audio, prompt, vad)
+        return self.to_text(texts, words)
+
+    def to_text(self, texts: list[str], words: list[tuple[str, float, float]]) -> str:
         pause = float(self.cfg.get("pause_sentence_seconds", 0.8) or 0)
-        segments, _ = self.model.transcribe(
-            audio, language=self.language, beam_size=5,
-            initial_prompt=prompt or None, vad_filter=vad,
-            condition_on_previous_text=False,
-            word_timestamps=pause > 0,
-        )
-        texts, words = [], []
-        for seg in segments:
-            texts.append(seg.text.strip())
-            words.extend((w.word, w.start, w.end) for w in (seg.words or []))
         if words:
             return assemble_words(words, pause)
         return " ".join(texts).strip()
+
+
+class LiveSession:
+    """Transcribes finished stretches of speech while the key is still held.
+
+    Every half second it looks at the audio recorded so far. If there's a pause of
+    half a second after at least two seconds of new audio, everything before that
+    pause is transcribed now. On release, only the tail after the last commit is
+    left to do, so the text appears almost immediately."""
+
+    def __init__(self, recorder: Recorder, transcriber: Transcriber, prompt: str):
+        self.recorder = recorder
+        self.transcriber = transcriber
+        self.prompt = prompt
+        self.committed = 0          # samples already transcribed
+        self.texts: list[str] = []
+        self.words: list[tuple[str, float, float]] = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def context_prompt(self) -> str:
+        tail = " ".join(" ".join(self.texts).split()[-30:])
+        return (self.prompt + " " + tail).strip()
+
+    def _run(self) -> None:
+        while not self._stop.wait(0.5):
+            audio = self.recorder.snapshot()
+            cut = find_cut(audio, self.committed, SAMPLE_RATE)
+            if cut is None:
+                continue
+            self._commit(audio[self.committed:cut], cut)
+
+    def _commit(self, segment: np.ndarray, new_committed: int) -> None:
+        if has_speech(segment, SAMPLE_RATE):
+            texts, words = self.transcriber.transcribe_words(
+                segment, self.context_prompt(), offset=self.committed / SAMPLE_RATE)
+            self.texts.extend(t for t in texts if t)
+            self.words.extend(words)
+        self.committed = new_committed
+
+    def finish(self, audio: np.ndarray) -> tuple[list[str], list[tuple[str, float, float]]]:
+        """Stop the background loop and transcribe whatever is left."""
+        self._stop.set()
+        self._thread.join()
+        tail = audio[self.committed:]
+        if tail.size > SAMPLE_RATE // 4 and has_speech(tail, SAMPLE_RATE):
+            texts, words = self.transcriber.transcribe_words(
+                tail, self.context_prompt(), offset=self.committed / SAMPLE_RATE)
+            self.texts.extend(t for t in texts if t)
+            self.words.extend(words)
+        return self.texts, self.words
 
 
 def paste_text(text: str, method: str) -> None:
@@ -182,7 +254,8 @@ class App:
         self.toggle = cfg.get("mode") == "toggle"
         self.recorder = Recorder(cfg.get("input_device"))
         self.transcriber = Transcriber(cfg)
-        self.jobs: "queue.Queue[tuple[np.ndarray, float]]" = queue.Queue()
+        self.jobs: "queue.Queue[tuple[np.ndarray, float, LiveSession | None]]" = queue.Queue()
+        self.live: LiveSession | None = None
         self.recording = False
         self.lock = threading.Lock()
         # Context for spacing/capitalization: what we last pasted, where, and when.
@@ -220,33 +293,42 @@ class App:
             print(f"[audio] Could not open microphone: {e}", file=sys.stderr)
             return
         self.recording = True
+        if self.cfg.get("live_transcription", True):
+            self.live = LiveSession(self.recorder, self.transcriber, whisper_prompt(load_dictionary()))
         print("\r● listening...          ", end="", flush=True)
 
     def _stop(self) -> None:
         self.recording = False
         audio, seconds = self.recorder.stop()
         print("\r  transcribing...       ", end="", flush=True)
-        self.jobs.put((audio, seconds))
+        self.jobs.put((audio, seconds, self.live))
+        self.live = None
 
     # --- background worker ---------------------------------------------
     def worker(self) -> None:
         while True:
-            audio, seconds = self.jobs.get()
+            audio, seconds, live = self.jobs.get()
             try:
-                self._process(audio, seconds)
+                self._process(audio, seconds, live)
             except Exception as e:
                 print(f"\r[error] {type(e).__name__}: {e}", file=sys.stderr)
                 print("Still running. Try again, and send this message if it keeps happening.")
 
-    def _process(self, audio: np.ndarray, seconds: float) -> None:
+    def _process(self, audio: np.ndarray, seconds: float, live: "LiveSession | None") -> None:
         if seconds < self.cfg.get("min_seconds", 0.4) or audio.size == 0:
+            if live:
+                live.finish(np.zeros(0, dtype="float32"))
             print("\r(too short, ignored)      ")
             return
         # Reload every time so edits to dictionary/corrections apply immediately.
         dictionary = load_dictionary()
         corrections = load_corrections()
         t = time.time()
-        raw = self.transcriber.transcribe(audio, whisper_prompt(dictionary))
+        if live:
+            texts, words = live.finish(audio)
+            raw = self.transcriber.to_text(texts, words)
+        else:
+            raw = self.transcriber.transcribe(audio, whisper_prompt(dictionary))
         if not raw:
             print("\r(heard nothing)           ")
             return
