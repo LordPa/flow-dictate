@@ -144,6 +144,18 @@ class PauseTests(unittest.TestCase):
         w = self.words([(" one", 0.0), (" two", 5.0)])
         self.assertEqual(assemble_words(w, 0), "one two")
 
+    def test_segment_start_mid_sentence_is_lowercased(self):
+        # "If you look at these two things | You can see that." : Whisper split the
+        # segment and capitalized "You" although nothing ended the sentence.
+        w = [(" If", 0.0, 0.2, True), (" you", 0.3, 0.5, False), (" look", 0.6, 0.8, False),
+             (" You", 1.1, 1.3, True), (" can", 1.4, 1.6, False), (" see.", 1.7, 1.9, False),
+             (" Sam", 2.1, 2.3, True), (" left.", 2.4, 2.6, False)]
+        self.assertEqual(assemble_words(w, 0.8), "If you look you can see. Sam left.")
+        w2 = [(" talk", 0.0, 0.2, True), (" to", 0.3, 0.5, False), (" Wispr", 0.7, 0.9, True),
+              (" Flow", 1.0, 1.2, False)]
+        self.assertEqual(assemble_words(w2, 0.8, ["Wispr Flow"]), "talk to Wispr Flow")
+        self.assertEqual(assemble_words(w2, 0.8), "talk to wispr Flow")
+
 
 class LiveCutTests(unittest.TestCase):
     SR = 16000

@@ -6,6 +6,8 @@
   python -m flow_dictate history [N]     show recent dictations (raw vs final)
   python -m flow_dictate devices         list microphones
   python -m flow_dictate hotkey ctrl_r   change the push-to-talk key
+  python -m flow_dictate set KEY VALUE   change any setting, e.g. set llm_cleanup ollama
+  python -m flow_dictate settings        show current settings
   python -m flow_dictate file audio.wav  transcribe a file (test the pipeline without a mic)
   python -m flow_dictate clean "text"    run only the cleanup step on some text
 """
@@ -61,6 +63,29 @@ def main(argv: list[str]) -> int:
         cfg["hotkey"] = argv[1]
         save_config(cfg)
         print(f"Hotkey set to {argv[1]}. Restart the app for it to take effect.")
+        return 0
+
+    if cmd == "settings":
+        import json
+        print(json.dumps(cfg, indent=2))
+        print(f"\nFile: {CONFIG_PATH}")
+        return 0
+
+    if cmd == "set":
+        import json
+        from .paths import DEFAULT_CONFIG
+        if len(argv) != 3 or argv[1] not in DEFAULT_CONFIG:
+            print("usage: python -m flow_dictate set KEY VALUE")
+            print("keys: " + ", ".join(DEFAULT_CONFIG))
+            return 2
+        key, raw = argv[1], argv[2]
+        try:
+            value = json.loads(raw)       # numbers, true/false, null, lists
+        except json.JSONDecodeError:
+            value = raw                   # plain strings
+        cfg[key] = value
+        save_config(cfg)
+        print(f"{key} = {value!r}. Restart the app for it to take effect.")
         return 0
 
     if cmd == "devices":

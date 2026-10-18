@@ -83,25 +83,30 @@ def has_speech(audio: np.ndarray, sample_rate: int, frame_ms: int = 20) -> bool:
     return rms.size > 0 and float(rms.max()) > 0.004
 
 
-def assemble_words(words: list[tuple[str, float, float]], pause_seconds: float) -> str:
+def assemble_words(words: list[tuple], pause_seconds: float, dictionary: list[str] = ()) -> str:
     """Join Whisper's timed words into text, ending a sentence wherever the speaker
     paused for `pause_seconds` or longer without any punctuation.
 
-    words: (text, start, end) per word, in order. Whisper attaches punctuation to
-    the word it follows ("thinking," or "water?"), so a trailing mark on the previous
-    word means it already decided; we only step in when it wrote nothing.
+    words: (text, start, end[, segment_start]) per word, in order. Whisper attaches
+    punctuation to the word it follows ("thinking," or "water?"), so a trailing mark
+    on the previous word means it already decided; we only step in when it wrote
+    nothing. Whisper also capitalizes the first word of every internal segment even
+    mid-sentence; a segment start that follows no punctuation is lowercased.
     """
     out: list[str] = []
     prev_end = None
-    for text, start, end in words:
-        text = text.strip()
+    for item in words:
+        text, start, end = item[0].strip(), item[1], item[2]
+        seg_start = bool(item[3]) if len(item) > 3 else False
         if not text:
             continue
-        if out and prev_end is not None and pause_seconds > 0 and start - prev_end >= pause_seconds:
-            if out[-1][-1].isalnum():
+        if out and prev_end is not None:
+            if pause_seconds > 0 and start - prev_end >= pause_seconds and out[-1][-1].isalnum():
                 out[-1] += "."
             if out[-1][-1] in TERMINAL:
                 text = text[:1].upper() + text[1:]
+            elif seg_start and out[-1][-1].isalnum():
+                text = lowercase_first(text, list(dictionary))
         out.append(text)
         prev_end = end
     return " ".join(out)
@@ -207,6 +212,11 @@ def _llm_system_prompt(dictionary: list[str], style_notes: str) -> str:
         "- Remove filler (um, uh, you know), false starts, and repeated words.\n"
         "- Resolve self-corrections: 'send it Tuesday, no, Wednesday' becomes 'send it Wednesday'.\n"
         "- Fix punctuation, capitalization, and obvious misrecognitions.\n"
+        "- Put quotation marks around directly quoted speech: "
+        "the doctor said get out of here -> The doctor said, \"Get out of here.\"\n"
+        "- Write numbers, times, money and dates the way people type them: 3pm, $20, March 5.\n"
+        "- Keep the first letter's case as given: the text may continue a sentence that was "
+        "already typed.\n"
         "- Spell these personal vocabulary terms exactly as written when they appear: "
         f"{vocab}\n"
         "- 'new line' / 'new paragraph' are formatting commands, not words.\n"
@@ -260,6 +270,7 @@ def ollama_cleanup(text: str, dictionary: list[str], style_notes: str, model: st
         "system": _llm_system_prompt(dictionary, style_notes),
         "prompt": text,
         "stream": False,
+        "keep_alive": "30m",
         "options": {"temperature": 0},
     }).encode()
     req = urllib.request.Request(f"{url.rstrip('/')}/api/generate", data=body,
@@ -270,7 +281,13 @@ def ollama_cleanup(text: str, dictionary: list[str], style_notes: str, model: st
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
         print(f"[cleanup] Ollama not reachable ({e}), using rule-based text.", file=sys.stderr)
         return None
-    out = (data.get("response") or "").strip().strip('"')
+    out = (data.get("response") or "").strip()
+    # Small models sometimes answer "Here is the cleaned text:" on a line of its own.
+    lines = out.split("\n")
+    if len(lines) > 1 and lines[0].rstrip().endswith(":") and len(lines[0]) < 60:
+        out = "\n".join(lines[1:]).strip()
+    if len(out) > 1 and out[0] == out[-1] == '"' and '"' not in out[1:-1]:
+        out = out[1:-1]
     return out or None
 
 

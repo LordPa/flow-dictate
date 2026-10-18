@@ -155,11 +155,22 @@ The free rule-based cleanup handles fillers, spoken commands and your correction
 A language model additionally fixes things like "send it Tuesday, no, Wednesday"
 and awkward grammar. Two options:
 
-**Ollama (free, local).** Install Ollama from ollama.com, run `ollama pull llama3.2`,
-then set `"llm_cleanup": "ollama"`. Needs roughly 4 GB of RAM. Adds about a second
-per dictation on a laptop.
+This is also what adds quotation marks around quoted speech
+("The doctor said, \"Get out of here.\"") and types numbers the way you would.
 
-**Claude (API, pay per use).** Set `"llm_cleanup": "claude"` and either run
+**Ollama (free, local).** Install Ollama from ollama.com (it runs in the background),
+then in a terminal:
+
+```powershell
+ollama pull llama3.2
+.\start.bat set llm_cleanup ollama
+```
+
+Needs roughly 4 GB of RAM or GPU memory. On a GPU it adds a fraction of a second per
+dictation, on a laptop CPU about a second. If the results aren't careful enough, try a
+larger model: `ollama pull qwen2.5:7b` then `.\start.bat set ollama_model qwen2.5:7b`.
+
+**Claude (API, pay per use).** Run `.\start.bat set llm_cleanup claude` and either run
 `ant auth login` or export `ANTHROPIC_API_KEY`. The code uses `claude-opus-5-5` by
 default, with server-side fallback enabled so a safety-classifier decline is retried on
 another model rather than returned as an error. Opus is more than this task needs; for

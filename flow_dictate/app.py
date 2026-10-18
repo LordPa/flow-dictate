@@ -139,7 +139,7 @@ class Transcriber:
         return int(b)
 
     def transcribe_words(self, audio: np.ndarray, prompt: str, vad: bool = True,
-                         offset: float = 0.0) -> tuple[list[str], list[tuple[str, float, float]]]:
+                         offset: float = 0.0) -> tuple[list[str], list[tuple]]:
         """Returns (segment texts, [(word, start, end)]) with times shifted by `offset`."""
         with self.lock:
             segments, _ = self.model.transcribe(
@@ -150,17 +150,18 @@ class Transcriber:
             texts, words = [], []
             for seg in segments:
                 texts.append(seg.text.strip())
-                words.extend((w.word, w.start + offset, w.end + offset) for w in (seg.words or []))
+                for i, w in enumerate(seg.words or []):
+                    words.append((w.word, w.start + offset, w.end + offset, i == 0))
         return texts, words
 
     def transcribe(self, audio: np.ndarray, prompt: str, vad: bool = True) -> str:
         texts, words = self.transcribe_words(audio, prompt, vad)
         return self.to_text(texts, words)
 
-    def to_text(self, texts: list[str], words: list[tuple[str, float, float]]) -> str:
+    def to_text(self, texts: list[str], words: list[tuple]) -> str:
         pause = float(self.cfg.get("pause_sentence_seconds", 0.8) or 0)
         if words:
-            return assemble_words(words, pause)
+            return assemble_words(words, pause, load_dictionary())
         return " ".join(texts).strip()
 
 
@@ -178,7 +179,7 @@ class LiveSession:
         self.prompt = prompt
         self.committed = 0          # samples already transcribed
         self.texts: list[str] = []
-        self.words: list[tuple[str, float, float]] = []
+        self.words: list[tuple] = []
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -203,7 +204,7 @@ class LiveSession:
             self.words.extend(words)
         self.committed = new_committed
 
-    def finish(self, audio: np.ndarray) -> tuple[list[str], list[tuple[str, float, float]]]:
+    def finish(self, audio: np.ndarray) -> tuple[list[str], list[tuple]]:
         """Stop the background loop and transcribe whatever is left."""
         self._stop.set()
         self._thread.join()
