@@ -73,14 +73,28 @@ class Recorder:
 
 class Transcriber:
     def __init__(self, cfg: dict):
-        from faster_whisper import WhisperModel
+        self.cfg = cfg
+        self.language = cfg.get("language") or None
         device, compute = pick_device(cfg)
-        print(f"Loading Whisper '{cfg['whisper_model']}' on {device} ({compute}). "
+        try:
+            self._load(device, compute)
+        except Exception as e:
+            if device == "cpu":
+                raise
+            print(f"[whisper] GPU failed ({type(e).__name__}: {str(e)[:200]}). Falling back to CPU.")
+            self._load("cpu", "int8")
+
+    def _load(self, device: str, compute: str) -> None:
+        from faster_whisper import WhisperModel
+        print(f"Loading Whisper '{self.cfg['whisper_model']}' on {device} ({compute}). "
               f"First run downloads the model...")
         t = time.time()
-        self.model = WhisperModel(cfg["whisper_model"], device=device, compute_type=compute)
-        self.language = cfg.get("language") or None
-        print(f"Model ready in {time.time() - t:.1f}s.")
+        self.model = WhisperModel(self.cfg["whisper_model"], device=device, compute_type=compute)
+        # Run one second of silence through it now. On Windows a missing CUDA/cuDNN DLL
+        # only shows up at the first transcription, and we'd rather find out here.
+        self.transcribe(np.zeros(SAMPLE_RATE, dtype="float32"), "")
+        self.device = device
+        print(f"Model ready on {device} in {time.time() - t:.1f}s.")
 
     def transcribe(self, audio: np.ndarray, prompt: str) -> str:
         segments, _ = self.model.transcribe(
@@ -175,24 +189,31 @@ class App:
     def worker(self) -> None:
         while True:
             audio, seconds = self.jobs.get()
-            if seconds < self.cfg.get("min_seconds", 0.4) or audio.size == 0:
-                print("\r(too short, ignored)      ")
-                continue
-            # Reload every time so edits to dictionary/corrections apply immediately.
-            dictionary = load_dictionary()
-            corrections = load_corrections()
-            t = time.time()
-            raw = self.transcriber.transcribe(audio, whisper_prompt(dictionary))
-            if not raw:
-                print("\r(heard nothing)           ")
-                continue
-            final = clean_transcript(raw, self.cfg, dictionary, corrections)
-            if not final:
-                print("\r(nothing left after cleanup)")
-                continue
-            paste_text(final, self.cfg.get("paste_method", "paste"))
-            log_history(raw, final, seconds)
-            print(f"\r✓ {final}    [{seconds:.1f}s audio, {time.time() - t:.1f}s processing]")
+            try:
+                self._process(audio, seconds)
+            except Exception as e:
+                print(f"\r[error] {type(e).__name__}: {e}", file=sys.stderr)
+                print("Still running. Try again, and send this message if it keeps happening.")
+
+    def _process(self, audio: np.ndarray, seconds: float) -> None:
+        if seconds < self.cfg.get("min_seconds", 0.4) or audio.size == 0:
+            print("\r(too short, ignored)      ")
+            return
+        # Reload every time so edits to dictionary/corrections apply immediately.
+        dictionary = load_dictionary()
+        corrections = load_corrections()
+        t = time.time()
+        raw = self.transcriber.transcribe(audio, whisper_prompt(dictionary))
+        if not raw:
+            print("\r(heard nothing)           ")
+            return
+        final = clean_transcript(raw, self.cfg, dictionary, corrections)
+        if not final:
+            print("\r(nothing left after cleanup)")
+            return
+        paste_text(final, self.cfg.get("paste_method", "paste"))
+        log_history(raw, final, seconds)
+        print(f"\r✓ {final}    [{seconds:.1f}s audio, {time.time() - t:.1f}s processing]")
 
     def run(self) -> None:
         from pynput import keyboard
