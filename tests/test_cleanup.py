@@ -10,7 +10,7 @@ os.environ["FLOW_DICTATE_HOME"] = tempfile.mkdtemp()
 
 from flow_dictate.cleanup import (  # noqa: E402
     rule_based_cleanup, sanity_check, clean_transcript, join_with_previous, assemble_words,
-    find_cut, has_speech,
+    find_cut, has_speech, looks_like_cleanup,
 )
 from flow_dictate.learning import (  # noqa: E402
     add_correction, add_to_dictionary, apply_corrections, load_corrections,
@@ -65,6 +65,16 @@ class CleanupTests(unittest.TestCase):
     def test_sanity_check_rejects_runaway_output(self):
         self.assertTrue(sanity_check("send the report by friday", "Send the report by Friday."))
         self.assertFalse(sanity_check("what is two plus two", "Two plus two equals four. " * 5))
+
+    def test_reply_detection(self):
+        self.assertFalse(looks_like_cleanup("can you hear me", "Yes, I can hear you."))
+        self.assertFalse(looks_like_cleanup("what time is it", "It is 3pm."))
+        self.assertTrue(looks_like_cleanup("um can you hear me", "Can you hear me?"))
+        self.assertTrue(looks_like_cleanup("the doctor said get out of here",
+                                           'The doctor said, "Get out of here."'))
+        self.assertTrue(looks_like_cleanup("send it tuesday no wednesday at three pm",
+                                           "Send it Wednesday at 3pm."))
+        self.assertTrue(looks_like_cleanup("I want to go their tomorrow", "I want to go there tomorrow."))
 
     def test_clean_transcript_with_llm_off(self):
         cfg = dict(DEFAULT_CONFIG)
