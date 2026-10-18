@@ -254,13 +254,28 @@ def looks_like_cleanup(raw: str, cleaned: str) -> bool:
     An edit keeps the speaker's words. A reply ('Yes, I can hear you') brings in
     words the speaker never said. We allow a little slack for corrected
     misrecognitions and for numbers being rewritten (3pm)."""
-    raw_t, out_t = set(_tokens(raw)), _tokens(cleaned)
+    raw_t, out_t = _tokens(raw), _tokens(cleaned)
     if not out_t:
         return False
-    new = [w for w in out_t if w not in raw_t and not any(c.isdigit() for c in w)]
+    raw_set = set(raw_t)
+    new = [w for w in out_t if w not in raw_set and not any(c.isdigit() for c in w)]
     if len(new) > max(1, 0.25 * len(out_t)):
         return False
-    return len(out_t) <= max(len(raw_t) * 1.3, len(raw_t) + 5)
+    if len(out_t) > max(len(raw_t) * 1.3, len(raw_t) + 5):
+        return False
+    # The speaker's words should still appear, in order. A reply reuses a few of
+    # them in a different order ('what time is it' -> 'it is 3pm').
+    return _lcs_len(raw_t, out_t) >= 0.5 * len(raw_t)
+
+
+def _lcs_len(a: list[str], b: list[str]) -> int:
+    prev = [0] * (len(b) + 1)
+    for x in a:
+        cur = [0]
+        for j, y in enumerate(b, 1):
+            cur.append(prev[j - 1] + 1 if x == y else max(prev[j], cur[j - 1]))
+        prev = cur
+    return prev[-1]
 
 
 def claude_cleanup(text: str, dictionary: list[str], style_notes: str, model: str) -> str | None:
