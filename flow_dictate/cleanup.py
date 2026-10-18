@@ -317,6 +317,12 @@ def claude_cleanup(text: str, dictionary: list[str], style_notes: str, model: st
 
 
 OLLAMA_KEEP_ALIVE = "24h"   # keep the model in memory so every dictation is fast
+
+
+def _ollama_base(url: str) -> str:
+    # On Windows, "localhost" is tried over IPv6 first, which Ollama doesn't listen on,
+    # and the fallback to IPv4 can cost a second or two per request. Go straight to IPv4.
+    return url.rstrip("/").replace("://localhost", "://127.0.0.1")
 _warming: set[str] = set()
 
 
@@ -332,7 +338,7 @@ def ollama_warmup(model: str, url: str) -> None:
 
     def go() -> None:
         body = json.dumps({"model": model, "keep_alive": OLLAMA_KEEP_ALIVE}).encode()
-        req = urllib.request.Request(f"{url.rstrip('/')}/api/generate", data=body,
+        req = urllib.request.Request(f"{_ollama_base(url)}/api/generate", data=body,
                                      headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=600):
@@ -358,7 +364,7 @@ def ollama_cleanup(text: str, dictionary: list[str], style_notes: str, model: st
         "keep_alive": OLLAMA_KEEP_ALIVE,
         "options": {"temperature": 0, "num_predict": 400},
     }).encode()
-    req = urllib.request.Request(f"{url.rstrip('/')}/api/chat", data=body,
+    req = urllib.request.Request(f"{_ollama_base(url)}/api/chat", data=body,
                                  headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:

@@ -339,6 +339,7 @@ class App:
             raw = self.transcriber.to_text(texts, words)
         else:
             raw = self.transcriber.transcribe(audio, whisper_prompt(dictionary))
+        t_whisper = time.time() - t
         if not raw:
             print("\r(heard nothing)           ")
             return
@@ -350,10 +351,14 @@ class App:
         if not final:
             print("\r(nothing left after cleanup)")
             return
+        t_cleanup = time.time() - t - t_whisper
         paste_text(final, self.cfg.get("paste_method", "paste"))
         self.last_pasted, self.last_window, self.last_time = final, window, time.time()
         log_history(raw, final, seconds)
-        print(f"\r✓ {final}    [{seconds:.1f}s audio, {time.time() - t:.1f}s processing]")
+        timing = f"{seconds:.1f}s audio, {t_whisper:.1f}s speech"
+        if self.cfg.get("llm_cleanup", "off") != "off":
+            timing += f" + {t_cleanup:.1f}s cleanup"
+        print(f"\r✓ {final}    [{timing}]")
 
     def start(self):
         """Start listening in the background. Returns the keyboard listener."""
