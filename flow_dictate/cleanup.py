@@ -19,6 +19,17 @@ SPOKEN_COMMANDS = [
 
 SELF_CORRECTION_MARKERS = r"(?:scratch that|strike that|no wait|actually no)"
 
+# Punctuation spoken at the very end of a dictation.
+SPOKEN_END_PUNCTUATION = [
+    (r"[,.]?\s*\b(?:period|full stop)\b\.?\s*$", "."),
+    (r"[,.]?\s*\bquestion mark\b\.?\s*$", "?"),
+    (r"[,.]?\s*\bexclamation (?:point|mark)\b\.?\s*$", "!"),
+    (r"[,.]?\s*\bcomma\b\.?\s*$", ","),
+]
+
+TERMINAL = ".!?"
+KEEP_CAPITAL = {"i", "i'm", "i'll", "i've", "i'd"}
+
 
 def rule_based_cleanup(text: str, corrections: dict[str, str], fillers: list[str]) -> str:
     text = text.strip()
@@ -37,6 +48,8 @@ def rule_based_cleanup(text: str, corrections: dict[str, str], fillers: list[str
 
     for pattern, replacement in SPOKEN_COMMANDS:
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    for pattern, replacement in SPOKEN_END_PUNCTUATION:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
 
     for filler in fillers:
         if filler.endswith(","):
@@ -52,11 +65,59 @@ def rule_based_cleanup(text: str, corrections: dict[str, str], fillers: list[str
     text = re.sub(r"([,.!?;:]){2,}", r"\1", text)
     text = re.sub(r"[ \t]*\n[ \t]*", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
-    text = text.strip(" ,")
+    text = text.rstrip().lstrip(" ,")
 
-    # Capitalize sentence starts.
-    text = re.sub(r"(^|[.!?]\s+|\n+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text)
-    return text.strip()
+    # Capitalize sentence starts after punctuation. The first letter is handled by
+    # join_with_previous(), which knows whether we're continuing a sentence.
+    text = re.sub(r"([.!?]\s+|\n+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text)
+    return text.rstrip()
+
+
+def _first_word(text: str) -> str:
+    m = re.match(r"[A-Za-z][A-Za-z']*", text.lstrip())
+    return m.group(0) if m else ""
+
+
+def capitalize_first(text: str) -> str:
+    i = len(text) - len(text.lstrip())
+    return text[:i] + text[i:i + 1].upper() + text[i + 1:]
+
+
+def lowercase_first(text: str, dictionary: list[str]) -> str:
+    """Lowercase the first word unless it should stay capitalized: 'I', an acronym,
+    or a term from the personal dictionary that is written with a capital."""
+    word = _first_word(text)
+    if not word:
+        return text
+    if word.lower() in KEEP_CAPITAL or (word.isupper() and len(word) > 1):
+        return text
+    for term in dictionary:
+        if term[:1].isupper() and term.split()[0].lower() == word.lower():
+            return text
+    i = len(text) - len(text.lstrip())
+    return text[:i] + text[i:i + 1].lower() + text[i + 1:]
+
+
+def join_with_previous(previous: str | None, text: str, dictionary: list[str]) -> str:
+    """Decide spacing and the first letter from how the previous dictation ended.
+
+    previous=None means a fresh field: no leading space, capital letter.
+    Previous ended with . ! ? or a newline: new sentence, capital letter.
+    Previous ended mid-sentence (no punctuation, or a comma): continue it,
+    lowercase first letter. A space is added whenever the previous text
+    doesn't already end with one.
+    """
+    if not text:
+        return text
+    if previous is None or not previous.strip():
+        return capitalize_first(text)
+    tail = previous.rstrip()
+    needs_space = not previous[-1].isspace() and not text[0].isspace()
+    if previous.endswith("\n") or tail[-1] in TERMINAL or text.lstrip(" ")[:1] == "\n":
+        out = capitalize_first(text)
+    else:
+        out = lowercase_first(text, dictionary)
+    return (" " if needs_space else "") + out
 
 
 def _llm_system_prompt(dictionary: list[str], style_notes: str) -> str:
@@ -147,7 +208,19 @@ def sanity_check(raw: str, cleaned: str) -> bool:
     return out_words <= max(raw_words * 1.3, raw_words + 5)
 
 
-def clean_transcript(raw: str, cfg: dict, dictionary: list[str], corrections: dict[str, str]) -> str:
+def clean_transcript(raw: str, cfg: dict, dictionary: list[str], corrections: dict[str, str],
+                     previous: str | None = None) -> str:
+    """Full pipeline. `previous` is the text of the last dictation pasted into the same
+    place, or None if this is a fresh field."""
+    text = _clean_body(raw, cfg, dictionary, corrections)
+    if not text:
+        return ""
+    if cfg.get("add_final_period") and text[-1] not in TERMINAL + ",;:\n":
+        text += "."
+    return join_with_previous(previous, text, dictionary)
+
+
+def _clean_body(raw: str, cfg: dict, dictionary: list[str], corrections: dict[str, str]) -> str:
     text = rule_based_cleanup(raw, corrections, cfg.get("fillers", []))
     if not text:
         return ""

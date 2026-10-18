@@ -31,6 +31,9 @@ DEFAULT_CONFIG = {
     "paste_method": "paste",
     # Drop recordings shorter than this (accidental taps).
     "min_seconds": 0.4,
+    # Wispr-style: always end a dictation with a period if it has no punctuation.
+    # Off by default so you can stop mid-sentence and pick it up in the next one.
+    "add_final_period": False,
     # Filler words removed by the rule-based cleaner.
     "fillers": ["um", "uh", "uhm", "erm", "hmm", "mm", "you know,"],
     # Second-pass cleanup with a language model. "off" is free and local.

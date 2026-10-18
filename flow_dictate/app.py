@@ -42,6 +42,15 @@ def add_cuda_dll_dirs() -> None:
             os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
 
 
+def foreground_window():
+    """Identify the window that will receive the paste, so we know whether the next
+    dictation continues the previous one. Windows only; elsewhere returns None."""
+    if sys.platform == "win32":
+        import ctypes
+        return ctypes.windll.user32.GetForegroundWindow()
+    return None
+
+
 def pick_device(cfg: dict) -> tuple[str, str]:
     device, compute = cfg.get("device", "auto"), cfg.get("compute_type", "auto")
     if device == "auto":
@@ -168,6 +177,10 @@ class App:
         self.jobs: "queue.Queue[tuple[np.ndarray, float]]" = queue.Queue()
         self.recording = False
         self.lock = threading.Lock()
+        # Context for spacing/capitalization: what we last pasted, where, and when.
+        self.last_pasted: str | None = None
+        self.last_window = None
+        self.last_time = 0.0
 
     # --- hotkey handling -------------------------------------------------
     def _is_hotkey(self, key) -> bool:
@@ -229,11 +242,16 @@ class App:
         if not raw:
             print("\r(heard nothing)           ")
             return
-        final = clean_transcript(raw, self.cfg, dictionary, corrections)
+        window = foreground_window()
+        same_place = (window == self.last_window and self.last_pasted is not None
+                      and (window is not None or time.time() - self.last_time < 300))
+        final = clean_transcript(raw, self.cfg, dictionary, corrections,
+                                 previous=self.last_pasted if same_place else None)
         if not final:
             print("\r(nothing left after cleanup)")
             return
         paste_text(final, self.cfg.get("paste_method", "paste"))
+        self.last_pasted, self.last_window, self.last_time = final, window, time.time()
         log_history(raw, final, seconds)
         print(f"\r✓ {final}    [{seconds:.1f}s audio, {time.time() - t:.1f}s processing]")
 
