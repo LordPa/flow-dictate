@@ -51,6 +51,18 @@ def foreground_window():
     return None
 
 
+def gpu_summary() -> str:
+    """Name and memory use of the NVIDIA card, for the startup line. Empty if none."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.splitlines()[0] if out else ""
+
+
 def pick_device(cfg: dict) -> tuple[str, str]:
     device, compute = cfg.get("device", "auto"), cfg.get("compute_type", "auto")
     if device == "auto":
@@ -60,7 +72,7 @@ def pick_device(cfg: dict) -> tuple[str, str]:
         except Exception:
             device = "cpu"
     if compute == "auto":
-        compute = "float16" if device == "cuda" else "int8"
+        compute = "int8_float16" if device == "cuda" else "int8"
     return device, compute
 
 
@@ -130,7 +142,8 @@ class Transcriber:
         noise = (np.random.default_rng(0).standard_normal(SAMPLE_RATE) * 0.01).astype("float32")
         self.transcribe(noise, "", vad=False)
         self.device = device
-        print(f"Model ready on {device} in {time.time() - t:.1f}s.")
+        gpu = gpu_summary()
+        print(f"Model ready on {device} in {time.time() - t:.1f}s." + (f"  GPU: {gpu}" if gpu else ""))
 
     def beam_size(self) -> int:
         b = self.cfg.get("beam_size", "auto")

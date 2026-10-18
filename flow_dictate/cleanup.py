@@ -337,7 +337,8 @@ def ollama_warmup(model: str, url: str) -> None:
     _warming.add(key)
 
     def go() -> None:
-        body = json.dumps({"model": model, "keep_alive": OLLAMA_KEEP_ALIVE}).encode()
+        body = json.dumps({"model": model, "keep_alive": OLLAMA_KEEP_ALIVE,
+                           "options": {"num_ctx": 2048}}).encode()
         req = urllib.request.Request(f"{_ollama_base(url)}/api/generate", data=body,
                                      headers={"Content-Type": "application/json"})
         try:
@@ -362,7 +363,7 @@ def ollama_cleanup(text: str, dictionary: list[str], style_notes: str, model: st
                     + _llm_messages(text),
         "stream": False,
         "keep_alive": OLLAMA_KEEP_ALIVE,
-        "options": {"temperature": 0, "num_predict": 400},
+        "options": {"temperature": 0, "num_predict": 400, "num_ctx": 2048},
     }).encode()
     req = urllib.request.Request(f"{_ollama_base(url)}/api/chat", data=body,
                                  headers={"Content-Type": "application/json"})
