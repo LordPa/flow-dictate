@@ -9,7 +9,7 @@ import time
 
 import numpy as np
 
-from .cleanup import assemble_words, clean_transcript, find_cut, has_speech
+from .cleanup import assemble_words, clean_transcript, find_cut, has_speech, ollama_warmup
 from .learning import load_corrections, load_dictionary, log_history, whisper_prompt
 from .paths import CONFIG_PATH, DATA_DIR, default_hotkey
 
@@ -256,6 +256,8 @@ class App:
         self.hotkey = resolve_key(self.hotkey_name)
         self.toggle = cfg.get("mode") == "toggle"
         self.recorder = Recorder(cfg.get("input_device"))
+        if cfg.get("llm_cleanup") == "ollama":
+            ollama_warmup(cfg["ollama_model"], cfg["ollama_url"])  # in the background
         self.transcriber = Transcriber(cfg)
         self.jobs: "queue.Queue[tuple[np.ndarray, float, LiveSession | None]]" = queue.Queue()
         self.live: LiveSession | None = None

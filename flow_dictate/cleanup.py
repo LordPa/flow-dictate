@@ -263,23 +263,57 @@ def claude_cleanup(text: str, dictionary: list[str], style_notes: str, model: st
     return out or None
 
 
-def ollama_cleanup(text: str, dictionary: list[str], style_notes: str, model: str, url: str) -> str | None:
+OLLAMA_KEEP_ALIVE = "24h"   # keep the model in memory so every dictation is fast
+_warming: set[str] = set()
+
+
+def ollama_warmup(model: str, url: str) -> None:
+    """Load the model into Ollama's memory in the background. The first load can take
+    half a minute; doing it at startup means the first dictation doesn't pay for it."""
+    import threading
+
+    key = f"{url}|{model}"
+    if key in _warming:
+        return
+    _warming.add(key)
+
+    def go() -> None:
+        body = json.dumps({"model": model, "keep_alive": OLLAMA_KEEP_ALIVE}).encode()
+        req = urllib.request.Request(f"{url.rstrip('/')}/api/generate", data=body,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=600):
+                pass
+            print(f"[cleanup] Ollama model '{model}' is loaded and ready.")
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            print(f"[cleanup] Could not warm up Ollama ({e}). Is Ollama installed and running? "
+                  f"Did you run: ollama pull {model}", file=sys.stderr)
+        finally:
+            _warming.discard(key)
+
+    threading.Thread(target=go, daemon=True).start()
+
+
+def ollama_cleanup(text: str, dictionary: list[str], style_notes: str, model: str, url: str,
+                   timeout: float = 8.0) -> str | None:
     """Second pass with a local Ollama model. Free; quality depends on the model."""
     body = json.dumps({
         "model": model,
         "system": _llm_system_prompt(dictionary, style_notes),
         "prompt": text,
         "stream": False,
-        "keep_alive": "30m",
+        "keep_alive": OLLAMA_KEEP_ALIVE,
         "options": {"temperature": 0},
     }).encode()
     req = urllib.request.Request(f"{url.rstrip('/')}/api/generate", data=body,
                                  headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read())
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-        print(f"[cleanup] Ollama not reachable ({e}), using rule-based text.", file=sys.stderr)
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
+        print(f"[cleanup] Ollama didn't answer in {timeout:.0f}s ({e}); using the plain text "
+              "this time and loading the model in the background.", file=sys.stderr)
+        ollama_warmup(model, url)
         return None
     out = (data.get("response") or "").strip()
     # Small models sometimes answer "Here is the cleaned text:" on a line of its own.
@@ -323,7 +357,8 @@ def _clean_body(raw: str, cfg: dict, dictionary: list[str], corrections: dict[st
         improved = claude_cleanup(text, dictionary, cfg.get("style_notes", ""), cfg["claude_model"])
     elif mode == "ollama":
         improved = ollama_cleanup(text, dictionary, cfg.get("style_notes", ""),
-                                  cfg["ollama_model"], cfg["ollama_url"])
+                                  cfg["ollama_model"], cfg["ollama_url"],
+                                  timeout=float(cfg.get("llm_timeout_seconds", 8)))
     if improved and sanity_check(text, improved):
         # Corrections are the user's explicit word; they win over the model.
         return apply_corrections(improved, corrections)

@@ -52,6 +52,8 @@ DEFAULT_CONFIG = {
     "claude_model": "claude-opus-5-5",
     "ollama_model": "llama3.2",
     "ollama_url": "http://localhost:11434",
+    # Give the language model at most this long; past it you get the plain text.
+    "llm_timeout_seconds": 8,
     # Your writing style hints for the LLM pass, e.g. "casual, lowercase ok".
     "style_notes": "",
 }
