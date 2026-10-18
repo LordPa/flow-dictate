@@ -15,18 +15,43 @@ Everything runs on your machine with no subscription:
 
 ## Install
 
-You need Python 3.10 or newer (`python3 --version`).
+You need Python 3.10 or newer and git.
 
-```bash
+- **Windows**: install Python from python.org and tick **Add python.exe to PATH**.
+  Install git with `winget install Git.Git` or from git-scm.com.
+- **macOS**: `brew install python git`, or Python from python.org.
+
+Then, in a terminal (PowerShell on Windows), from your home folder, not System32:
+
+```powershell
+cd ~
+git clone https://github.com/LordPa/flow-dictate.git
 cd flow-dictate
-python3 -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-python -m flow_dictate
+.\start.bat              # macOS/Linux: ./start.sh
 ```
 
-The first run downloads the Whisper model (about 500 MB for `small.en`), then prints
-`Ready`. Click into any text field, hold **right Alt / right Option**, speak, release.
+The start script creates a private Python environment, installs the dependencies
+(a few minutes the first time), downloads the Whisper model (about 500 MB for
+`small.en`), and prints `Ready`. After that, running it again starts in seconds.
+Click into any text field, hold **right Alt / right Option**, speak, release.
+
+Other commands go through the same script, for example `.\start.bat learn "Wispr Flow"`.
+
+If you'd rather not use git, click **Code → Download ZIP** on the GitHub page, unzip
+it, and double-click `start.bat` inside the folder.
+
+<details>
+<summary>Manual install without the start script</summary>
+
+```powershell
+python -m venv venv
+venv\Scripts\python -m pip install -r requirements.txt    # macOS/Linux: venv/bin/python
+venv\Scripts\python -m flow_dictate
+```
+
+On Windows this avoids the PowerShell "running scripts is disabled" error that
+`Activate.ps1` can trigger. On macOS/Linux use `python3` if `python` is not found.
+</details>
 
 ### macOS permissions (one time)
 
@@ -43,7 +68,7 @@ after granting access.
 
 ### Windows
 
-No special permissions. If pasting into an app running as Administrator fails,
+No special permissions, and no need to run the terminal as Administrator. If pasting into an app running as Administrator fails,
 run your terminal as Administrator too.
 
 ### Linux
@@ -54,11 +79,14 @@ bind a desktop shortcut to toggle mode instead (see `mode` below).
 ## Everyday use
 
 ```
-python -m flow_dictate                       start (leave it running in a terminal)
-python -m flow_dictate learn "Wispr Flow"    teach it a name, product or jargon
-python -m flow_dictate correct "whisper flow" "Wispr Flow"
-python -m flow_dictate history               see recent dictations, raw vs final
+.\start.bat                                  start (leave it running in a terminal)
+.\start.bat learn "Wispr Flow"               teach it a name, product or jargon
+.\start.bat correct "whisper flow" "Wispr Flow"
+.\start.bat history                          see recent dictations, raw vs final
 ```
+
+On macOS/Linux use `./start.sh` in place of `.\start.bat`. If you installed manually,
+`venv\Scripts\python -m flow_dictate ...` is the same thing.
 
 ### How "learning" works
 
