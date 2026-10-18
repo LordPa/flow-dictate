@@ -129,7 +129,15 @@ it once. It never happens again. Edits apply immediately, no restart.
 | `large-v3-turbo` | 1.6 GB | 2 to 4 s per 10 s of speech | best, multilingual |
 | `distil-large-v3` | 1.5 GB | 2 to 3 s per 10 s of speech | near best, English |
 
-With an NVIDIA GPU, `large-v3-turbo` is near instant. Apple Silicon runs on CPU
+With an NVIDIA GPU, `large-v3-turbo` is near instant. The GPU needs NVIDIA's CUDA
+libraries; if the app prints "GPU not usable" and falls back to CPU, install them once with
+
+```powershell
+venv\Scripts\python -m pip install -r requirements-gpu.txt
+```
+
+(macOS/Linux: `venv/bin/python -m pip install -r requirements-gpu.txt`). No CUDA toolkit
+download from NVIDIA is needed; the app finds these libraries on its own. Apple Silicon runs on CPU
 through this library; `small.en` and `medium.en` are both comfortable there.
 
 ### Optional language-model polish
@@ -171,8 +179,11 @@ rule-based text. The app never blocks on it.
   Click into the target app first.
 - **"Could not open microphone"**: run `python -m flow_dictate devices` and set
   `input_device` to the right one. On macOS, check the Microphone permission.
-- **Slow**: switch to `base.en`, or if you have an NVIDIA GPU make sure CUDA is
-  installed so `device` resolves to `cuda`.
+- **"Library cublas64_12.dll is not found" or "GPU not usable"**: install the GPU
+  libraries with the command in the Whisper model section above, or ignore it; the app
+  runs on CPU.
+- **Slow**: switch to `base.en`, or if you have an NVIDIA GPU install the GPU libraries
+  as above.
 - **Test without a mic**: `python -m flow_dictate file some.wav` prints raw and
   cleaned transcript for any audio file.
 

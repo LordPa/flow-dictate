@@ -1,6 +1,9 @@
 """Hold a key, talk, release. Clean text lands wherever your cursor is."""
+import glob
+import os
 import queue
 import sys
+import sysconfig
 import threading
 import time
 
@@ -23,6 +26,20 @@ def resolve_key(name: str):
     if len(name) == 1:
         return KeyCode.from_char(name)
     raise SystemExit(f"Unknown hotkey '{name}'. Use a key name like ctrl_r, alt_r, cmd_r, f8, pause.")
+
+
+def add_cuda_dll_dirs() -> None:
+    """Windows: make pip-installed NVIDIA libraries (nvidia-cublas-cu12, nvidia-cudnn-cu12)
+    visible to the speech engine. They live in site-packages/nvidia/<lib>/bin."""
+    if sys.platform != "win32":
+        return
+    for site in {sysconfig.get_paths()["purelib"], sysconfig.get_paths()["platlib"]}:
+        for d in glob.glob(os.path.join(site, "nvidia", "*", "bin")):
+            try:
+                os.add_dll_directory(d)
+            except OSError:
+                pass
+            os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
 
 
 def pick_device(cfg: dict) -> tuple[str, str]:
@@ -75,13 +92,16 @@ class Transcriber:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.language = cfg.get("language") or None
+        add_cuda_dll_dirs()
         device, compute = pick_device(cfg)
         try:
             self._load(device, compute)
         except Exception as e:
             if device == "cpu":
                 raise
-            print(f"[whisper] GPU failed ({type(e).__name__}: {str(e)[:200]}). Falling back to CPU.")
+            print(f"[whisper] GPU not usable ({type(e).__name__}: {str(e)[:160]}).")
+            print("[whisper] Using the CPU instead. For GPU speed, run once:  "
+                  "venv\\Scripts\\python -m pip install -r requirements-gpu.txt")
             self._load("cpu", "int8")
 
     def _load(self, device: str, compute: str) -> None:
@@ -90,16 +110,18 @@ class Transcriber:
               f"First run downloads the model...")
         t = time.time()
         self.model = WhisperModel(self.cfg["whisper_model"], device=device, compute_type=compute)
-        # Run one second of silence through it now. On Windows a missing CUDA/cuDNN DLL
-        # only shows up at the first transcription, and we'd rather find out here.
-        self.transcribe(np.zeros(SAMPLE_RATE, dtype="float32"), "")
+        # Push one second of noise through the model now, with the silence filter off so
+        # the GPU is really exercised. On Windows a missing CUDA/cuDNN DLL only shows up
+        # at the first transcription, and we'd rather find out here and fall back.
+        noise = (np.random.default_rng(0).standard_normal(SAMPLE_RATE) * 0.01).astype("float32")
+        self.transcribe(noise, "", vad=False)
         self.device = device
         print(f"Model ready on {device} in {time.time() - t:.1f}s.")
 
-    def transcribe(self, audio: np.ndarray, prompt: str) -> str:
+    def transcribe(self, audio: np.ndarray, prompt: str, vad: bool = True) -> str:
         segments, _ = self.model.transcribe(
             audio, language=self.language, beam_size=5,
-            initial_prompt=prompt or None, vad_filter=True,
+            initial_prompt=prompt or None, vad_filter=vad,
             condition_on_previous_text=False,
         )
         return " ".join(s.text.strip() for s in segments).strip()

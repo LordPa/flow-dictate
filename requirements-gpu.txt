@@ -1,0 +1,5 @@
+# Optional: NVIDIA GPU support on Windows/Linux without installing the CUDA toolkit.
+# Install with:  venv\Scripts\python -m pip install -r requirements-gpu.txt
+# About 1 GB of downloads. Needs a recent NVIDIA driver.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9,<10
