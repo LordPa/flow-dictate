@@ -8,19 +8,21 @@ import numpy as np
 
 from .cleanup import clean_transcript
 from .learning import load_corrections, load_dictionary, log_history, whisper_prompt
-from .paths import CONFIG_PATH, DATA_DIR
+from .paths import CONFIG_PATH, DATA_DIR, default_hotkey
 
 SAMPLE_RATE = 16000  # Whisper's native rate
 
 
 def resolve_key(name: str):
     from pynput.keyboard import Key, KeyCode
-    name = name.strip()
+    name = (name or "auto").strip()
+    if name == "auto":
+        name = default_hotkey()
     if hasattr(Key, name):
         return getattr(Key, name)
     if len(name) == 1:
         return KeyCode.from_char(name)
-    raise SystemExit(f"Unknown hotkey '{name}'. Use a pynput key name like alt_r, ctrl_r, cmd_r, f8.")
+    raise SystemExit(f"Unknown hotkey '{name}'. Use a key name like ctrl_r, alt_r, cmd_r, f8, pause.")
 
 
 def pick_device(cfg: dict) -> tuple[str, str]:
@@ -120,7 +122,10 @@ def paste_text(text: str, method: str) -> None:
 class App:
     def __init__(self, cfg: dict):
         self.cfg = cfg
-        self.hotkey = resolve_key(cfg["hotkey"])
+        self.hotkey_name = cfg.get("hotkey") or "auto"
+        if self.hotkey_name == "auto":
+            self.hotkey_name = default_hotkey()
+        self.hotkey = resolve_key(self.hotkey_name)
         self.toggle = cfg.get("mode") == "toggle"
         self.recorder = Recorder(cfg.get("input_device"))
         self.transcriber = Transcriber(cfg)
@@ -193,7 +198,12 @@ class App:
         from pynput import keyboard
         threading.Thread(target=self.worker, daemon=True).start()
         how = "tap to start / tap to stop" if self.toggle else "hold to talk"
-        print(f"Ready. Hotkey: {self.cfg['hotkey']} ({how}). Ctrl+C to quit.")
+        try:
+            mic = self.recorder.sd.query_devices(self.cfg.get("input_device"), "input")["name"]
+        except Exception as e:  # no default input device, or a bad input_device setting
+            mic = f"NONE FOUND ({e})"
+        print(f"Ready. Hotkey: {self.hotkey_name} ({how}). Microphone: {mic}. Ctrl+C to quit.")
+        print(f"Change the key with:  python -m flow_dictate hotkey f8   (or ctrl_r, alt_r, pause, scroll_lock)")
         print(f"Settings: {CONFIG_PATH}   Vocabulary: {DATA_DIR}")
         with keyboard.Listener(on_press=self.on_press, on_release=self.on_release) as listener:
             try:

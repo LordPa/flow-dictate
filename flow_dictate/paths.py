@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from pathlib import Path
 
 DATA_DIR = Path(os.environ.get("FLOW_DICTATE_HOME", Path.home() / ".flow-dictate"))
@@ -10,8 +11,10 @@ HISTORY_PATH = DATA_DIR / "history.jsonl"
 
 DEFAULT_CONFIG = {
     # Hold this key to talk, release to transcribe and paste.
-    # Any pynput key name works: alt_r, ctrl_r, cmd_r, f8, pause, scroll_lock ...
-    "hotkey": "alt_r",
+    # "auto" = right Ctrl on Windows/Linux, right Option on macOS.
+    # Any pynput key name works: ctrl_r, alt_r, cmd_r, f8, pause, scroll_lock ...
+    # Avoid Alt on Windows: tapping it opens app menus.
+    "hotkey": "auto",
     # "hold" = push-to-talk. "toggle" = tap once to start, tap again to stop.
     "mode": "hold",
     # Whisper model. Bigger = more accurate, slower. Good choices:
@@ -60,3 +63,12 @@ def load_config() -> dict:
     except json.JSONDecodeError as e:
         raise SystemExit(f"config.json is not valid JSON ({e}). File: {CONFIG_PATH}")
     return cfg
+
+
+def default_hotkey() -> str:
+    return "alt_r" if sys.platform == "darwin" else "ctrl_r"
+
+
+def save_config(cfg: dict) -> None:
+    ensure_data_dir()
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n")

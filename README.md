@@ -33,7 +33,7 @@ cd flow-dictate
 The start script creates a private Python environment, installs the dependencies
 (a few minutes the first time), downloads the Whisper model (about 500 MB for
 `small.en`), and prints `Ready`. After that, running it again starts in seconds.
-Click into any text field, hold **right Alt / right Option**, speak, release.
+Click into any text field, hold **right Ctrl** (Windows/Linux) or **right Option** (macOS), speak, release.
 
 Other commands go through the same script, for example `.\start.bat learn "Wispr Flow"`.
 
@@ -109,7 +109,7 @@ it once. It never happens again. Edits apply immediately, no restart.
 
 | Key | Default | Notes |
 |-----|---------|-------|
-| `hotkey` | `alt_r` | Right Alt / right Option. Others: `ctrl_r`, `cmd_r`, `f8`, `pause`, `scroll_lock` |
+| `hotkey` | `auto` | Right Ctrl on Windows/Linux, right Option on macOS. Others: `f8`, `pause`, `scroll_lock`, `cmd_r`. Change with `.\start.bat hotkey f8` |
 | `mode` | `hold` | `toggle` = tap to start, tap again to stop |
 | `whisper_model` | `small.en` | See table below |
 | `language` | `en` | Set to another code and use a non-`.en` model for other languages |
@@ -158,6 +158,12 @@ If the LLM step fails for any reason (offline, no key, rate limit), you still ge
 rule-based text. The app never blocks on it.
 
 ## Troubleshooting
+
+- **Tapping the key shows letters over the menus (Windows)**: that's Alt activating
+  the menu bar. Use a different key: `.\start.bat hotkey ctrl_r` (or `f8`, `pause`).
+- **Nothing happens when you hold the key**: look at the app's terminal window. It prints
+  `● listening...` while the key is held. If it doesn't, the key name in config doesn't
+  match your keyboard; try `.\start.bat hotkey f8`.
 
 - **Hotkey does nothing on macOS**: grant Accessibility and Input Monitoring to the
   terminal app, then relaunch it.

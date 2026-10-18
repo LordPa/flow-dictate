@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Flow Dictate launcher for macOS and Linux. First run installs dependencies.
 cd "$(dirname "$0")"
+# Pick up the latest version if this folder came from git.
+if [ -d .git ] && command -v git >/dev/null; then git pull --ff-only -q; fi
 if [ ! -x venv/bin/python ]; then
     echo "Creating virtual environment..."
     python3 -m venv venv || { echo "python3 not found. Install Python 3.10+ first."; exit 1; }

@@ -5,12 +5,13 @@
   python -m flow_dictate correct "heard" "meant"
   python -m flow_dictate history [N]     show recent dictations (raw vs final)
   python -m flow_dictate devices         list microphones
+  python -m flow_dictate hotkey ctrl_r   change the push-to-talk key
   python -m flow_dictate file audio.wav  transcribe a file (test the pipeline without a mic)
   python -m flow_dictate clean "text"    run only the cleanup step on some text
 """
 import sys
 
-from .paths import CONFIG_PATH, DICTIONARY_PATH, CORRECTIONS_PATH, load_config
+from .paths import CONFIG_PATH, DICTIONARY_PATH, CORRECTIONS_PATH, load_config, save_config
 
 
 def main(argv: list[str]) -> int:
@@ -45,6 +46,21 @@ def main(argv: list[str]) -> int:
         n = int(argv[1]) if len(argv) > 1 else 10
         for rec in read_history(n):
             print(f"raw:   {rec['raw']}\nfinal: {rec['final']}\n")
+        return 0
+
+    if cmd == "hotkey":
+        from .app import resolve_key
+        if len(argv) != 2:
+            print(f"usage: python -m flow_dictate hotkey <key>    current: {cfg['hotkey']}")
+            print("examples: ctrl_r  alt_r  cmd_r  f8  f9  pause  scroll_lock  auto")
+            return 2
+        try:
+            resolve_key(argv[1])  # exits with a message if the name is unknown
+        except ImportError:
+            pass  # no display available to load the keyboard library; save anyway
+        cfg["hotkey"] = argv[1]
+        save_config(cfg)
+        print(f"Hotkey set to {argv[1]}. Restart the app for it to take effect.")
         return 0
 
     if cmd == "devices":
