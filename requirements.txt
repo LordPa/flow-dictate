@@ -1,0 +1,7 @@
+faster-whisper>=1.1
+sounddevice>=0.5
+numpy
+pynput>=1.7
+pyperclip>=1.9
+# Optional: only needed if you turn on Claude cleanup in config.json
+anthropic>=1.0
