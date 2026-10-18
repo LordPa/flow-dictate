@@ -7,7 +7,7 @@ from pathlib import Path
 os.environ["FLOW_DICTATE_HOME"] = tempfile.mkdtemp()
 
 from flow_dictate.cleanup import (  # noqa: E402
-    rule_based_cleanup, sanity_check, clean_transcript, join_with_previous,
+    rule_based_cleanup, sanity_check, clean_transcript, join_with_previous, assemble_words,
 )
 from flow_dictate.learning import (  # noqa: E402
     add_correction, add_to_dictionary, apply_corrections, load_corrections,
@@ -115,6 +115,31 @@ class JoinTests(unittest.TestCase):
         out = clean_transcript("um, you need to put a space after the word.", DEFAULT_CONFIG, [], {},
                                previous="So I want to talk about something")
         self.assertEqual(out, " you need to put a space after the word.")
+
+
+class PauseTests(unittest.TestCase):
+    """'So tell me what you're thinking [pause] do you want a glass of water?'"""
+
+    def words(self, spec):
+        # spec: list of (word, start); each word lasts 0.2s
+        return [(w, t, t + 0.2) for w, t in spec]
+
+    def test_long_pause_without_punctuation_ends_sentence(self):
+        w = self.words([(" So", 0.0), (" tell", 0.3), (" me", 0.6), (" what", 0.9), (" you're", 1.2),
+                        (" thinking", 1.5), (" do", 3.0), (" you", 3.3), (" want", 3.6), (" water?", 3.9)])
+        self.assertEqual(assemble_words(w, 0.8), "So tell me what you're thinking. Do you want water?")
+
+    def test_short_pause_is_left_alone(self):
+        w = self.words([(" I", 0.0), (" think", 0.3), (" we", 0.9), (" should", 1.2)])
+        self.assertEqual(assemble_words(w, 0.8), "I think we should")
+
+    def test_existing_punctuation_is_respected(self):
+        w = self.words([(" Hello,", 0.0), (" there", 2.0), (" friend.", 2.3), (" bye", 5.0)])
+        self.assertEqual(assemble_words(w, 0.8), "Hello, there friend. Bye")
+
+    def test_disabled(self):
+        w = self.words([(" one", 0.0), (" two", 5.0)])
+        self.assertEqual(assemble_words(w, 0), "one two")
 
 
 class LearningFilesTests(unittest.TestCase):

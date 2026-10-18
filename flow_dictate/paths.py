@@ -31,6 +31,10 @@ DEFAULT_CONFIG = {
     "paste_method": "paste",
     # Drop recordings shorter than this (accidental taps).
     "min_seconds": 0.4,
+    # A silence this long between words ends the sentence (period + capital) when
+    # Whisper put no punctuation there. Raise it if thinking pauses split your
+    # sentences; lower it if run-on sentences slip through. 0 turns it off.
+    "pause_sentence_seconds": 0.8,
     # Wispr-style: always end a dictation with a period if it has no punctuation.
     # Off by default so you can stop mid-sentence and pick it up in the next one.
     "add_final_period": False,

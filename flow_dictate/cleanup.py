@@ -31,6 +31,30 @@ TERMINAL = ".!?"
 KEEP_CAPITAL = {"i", "i'm", "i'll", "i've", "i'd"}
 
 
+def assemble_words(words: list[tuple[str, float, float]], pause_seconds: float) -> str:
+    """Join Whisper's timed words into text, ending a sentence wherever the speaker
+    paused for `pause_seconds` or longer without any punctuation.
+
+    words: (text, start, end) per word, in order. Whisper attaches punctuation to
+    the word it follows ("thinking," or "water?"), so a trailing mark on the previous
+    word means it already decided; we only step in when it wrote nothing.
+    """
+    out: list[str] = []
+    prev_end = None
+    for text, start, end in words:
+        text = text.strip()
+        if not text:
+            continue
+        if out and prev_end is not None and pause_seconds > 0 and start - prev_end >= pause_seconds:
+            if out[-1][-1].isalnum():
+                out[-1] += "."
+            if out[-1][-1] in TERMINAL:
+                text = text[:1].upper() + text[1:]
+        out.append(text)
+        prev_end = end
+    return " ".join(out)
+
+
 def rule_based_cleanup(text: str, corrections: dict[str, str], fillers: list[str]) -> str:
     text = text.strip()
     if not text:

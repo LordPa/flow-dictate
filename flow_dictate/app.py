@@ -9,7 +9,7 @@ import time
 
 import numpy as np
 
-from .cleanup import clean_transcript
+from .cleanup import assemble_words, clean_transcript
 from .learning import load_corrections, load_dictionary, log_history, whisper_prompt
 from .paths import CONFIG_PATH, DATA_DIR, default_hotkey
 
@@ -128,12 +128,20 @@ class Transcriber:
         print(f"Model ready on {device} in {time.time() - t:.1f}s.")
 
     def transcribe(self, audio: np.ndarray, prompt: str, vad: bool = True) -> str:
+        pause = float(self.cfg.get("pause_sentence_seconds", 0.8) or 0)
         segments, _ = self.model.transcribe(
             audio, language=self.language, beam_size=5,
             initial_prompt=prompt or None, vad_filter=vad,
             condition_on_previous_text=False,
+            word_timestamps=pause > 0,
         )
-        return " ".join(s.text.strip() for s in segments).strip()
+        texts, words = [], []
+        for seg in segments:
+            texts.append(seg.text.strip())
+            words.extend((w.word, w.start, w.end) for w in (seg.words or []))
+        if words:
+            return assemble_words(words, pause)
+        return " ".join(texts).strip()
 
 
 def paste_text(text: str, method: str) -> None:
