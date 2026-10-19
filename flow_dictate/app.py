@@ -1,4 +1,5 @@
 """Hold a key, talk, release. Clean text lands wherever your cursor is."""
+import faulthandler
 import glob
 import os
 import queue
@@ -72,7 +73,7 @@ def pick_device(cfg: dict) -> tuple[str, str]:
         except Exception:
             device = "cpu"
     if compute == "auto":
-        compute = "int8_float16" if device == "cuda" else "int8"
+        compute = "float16" if device == "cuda" else "int8"
     return device, compute
 
 
@@ -349,12 +350,16 @@ class App:
     def worker(self) -> None:
         while True:
             audio, seconds, live = self.jobs.get()
+            # Watchdog: if this dictation takes more than 20s, print where every
+            # thread is stuck so the cause can be seen instead of guessed.
+            faulthandler.dump_traceback_later(20, repeat=False, file=sys.stderr)
             try:
                 self._process(audio, seconds, live)
             except Exception as e:
                 print(f"\r[error] {type(e).__name__}: {e}", file=sys.stderr)
                 print("Still running. Try again, and send this message if it keeps happening.")
             finally:
+                faulthandler.cancel_dump_traceback_later()
                 if not self.recording:
                     self.on_state("idle")
 
