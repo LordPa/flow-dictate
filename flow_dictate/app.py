@@ -241,18 +241,39 @@ def paste_text(text: str, method: str) -> None:
         previous = pyperclip.paste()
     except pyperclip.PyperclipException:
         previous = None
-    pyperclip.copy(text)
-    time.sleep(0.05)
+    # Put the text on the clipboard and make sure it actually landed before pasting.
+    # Clipboard managers and other apps can briefly hold the clipboard on Windows.
+    for attempt in range(10):
+        try:
+            pyperclip.copy(text)
+            if pyperclip.paste() == text:
+                break
+        except pyperclip.PyperclipException:
+            pass
+        time.sleep(0.05)
+    else:
+        print("[paste] could not place text on the clipboard; typing it instead", file=sys.stderr)
+        kb.type(text)
+        return
     mod = Key.cmd if sys.platform == "darwin" else Key.ctrl
-    with kb.pressed(mod):
-        kb.press("v")
-        kb.release("v")
-    if previous is not None:
-        # Give the target app a moment to read the clipboard, then put the old contents back.
+    # One clean Ctrl+V with explicit timing so no key is ever left held long enough
+    # for the system to auto-repeat it.
+    kb.press(mod)
+    time.sleep(0.02)
+    kb.press("v")
+    time.sleep(0.02)
+    kb.release("v")
+    time.sleep(0.02)
+    kb.release(mod)
+    print(f"[paste] {len(text)} chars", file=sys.stderr)
+    if previous is not None and previous != text:
         def restore():
-            time.sleep(0.6)
+            # Give the target app time to read the clipboard, then put the old contents
+            # back, unless something else has changed the clipboard in the meantime.
+            time.sleep(1.0)
             try:
-                pyperclip.copy(previous)
+                if pyperclip.paste() == text:
+                    pyperclip.copy(previous)
             except pyperclip.PyperclipException:
                 pass
         threading.Thread(target=restore, daemon=True).start()
